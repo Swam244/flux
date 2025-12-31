@@ -1,0 +1,27 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.5.0",
+    "pybind11>=2.11.0",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "flux"
+version = "0.1.0"
+description = "A high-performance, lightweight Django rate-limiter package"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-django>=4.5.0",
+]
+
+[tool.scikit-build]
+wheel.expand-macos-universal-tags = false
+
+[tool.scikit-build.cmake]
+version = ">=3.15"
+args = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
