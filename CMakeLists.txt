@@ -36,8 +36,15 @@ FetchContent_Declare(
     GIT_TAG        v1.2.0
 )
 
+# 4. spdlog (Fast C++ logging library)
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.13.0
+)
+
 # Make dependencies available immediately
-FetchContent_MakeAvailable(fmt tomlplusplus hiredis)
+FetchContent_MakeAvailable(fmt tomlplusplus hiredis spdlog)
 
 
 
@@ -58,6 +65,7 @@ target_link_libraries(_flux_core PRIVATE
     fmt::fmt
     tomlplusplus::tomlplusplus
     hiredis
+    spdlog::spdlog
 )
 
 # Set output directory

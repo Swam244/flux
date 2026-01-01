@@ -11,7 +11,9 @@ version = "0.1.0"
 description = "A high-performance, lightweight Django rate-limiter package"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pytest>=9.0.2",
+]
 
 [project.optional-dependencies]
 dev = [
