@@ -213,20 +213,36 @@ std::pair<long long, double> RedisClient::eval_sha(
 
 // For backward compatibility.
 
+#include "sha256.hpp"
+
+// ... (existing includes)
+
+// ...
+
 std::pair<long long, double> RedisClient::eval_script(
     const std::string& script_sha,
     const std::string& script_content,
-    const std::vector<std::string>& keys,
-    const std::vector<long long>& args
+    const std::vector<std::string>& raw_keys,
+    const std::vector<long long>& args,
+    const std::string& key_prefix
 ) {
+    // Hash keys inside C++
+    std::vector<std::string> hashed_keys;
+    hashed_keys.reserve(raw_keys.size());
+    
+    for (const auto& k : raw_keys) {
+        std::string hashed = sha256(k);
+        hashed_keys.push_back(key_prefix + hashed);
+    }
+    
     try {
-        return eval_sha(script_sha, keys, args);
+        return eval_sha(script_sha, hashed_keys, args);
     } catch (const std::runtime_error& e) {
         std::string err = e.what();
         if (err == "NOSCRIPT") {
             spdlog::warn("NOSCRIPT received, re-loading script...");
             load_script(script_content);
-            return eval_sha(script_sha, keys, args);
+            return eval_sha(script_sha, hashed_keys, args);
         }
         throw;
     }

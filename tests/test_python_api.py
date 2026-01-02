@@ -71,12 +71,19 @@ class TestRateLimitDecorator:
             pytest.skip("Redis not available")
     
     def test_dynamic_key(self):
-        @rate_limit(requests=10, period=60, key=lambda user_id: f"user:{user_id}")
-        def my_func(user_id):
-            return f"processed:{user_id}"
+        class MockRequest:
+            def __init__(self, user_id):
+                self.user_id = user_id
+                self.method = "GET" # Satisfy get_request_from_args
+                self.url = "/"
+
+        @rate_limit(requests=10, period=60, key=lambda r: f"user:{r.user_id}")
+        def my_func(request):
+            return f"processed:{request.user_id}"
         
         try:
-            result = my_func("123")
+            req = MockRequest("123")
+            result = my_func(req)
             assert result == "processed:123"
         except ConnectionError:
             pytest.skip("Redis not available")

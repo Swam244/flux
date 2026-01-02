@@ -254,8 +254,11 @@ class RateLimiter:
         return self._script_content, self._script_sha
     
     def _full_key(self, key: str) -> str:
-        """Apply key prefix."""
-        return f"{self._config.key_prefix}{key}"
+        """
+        Return key as-is. 
+        Prefixing and hashing are now handled by the C++ engine.
+        """
+        return key
     
     def _now_ms(self) -> int:
         """Current time in milliseconds."""
@@ -363,12 +366,37 @@ class RateLimiter:
         now_ms = self._now_ms()
         
         try:
-            # Build parameters for the policy's Lua script
+            # Note: We pass the RAW key to C++.
+            # The C++ engine handles SHA256 hashing and prefixing.
+            # This improves performance and security centralization.
+            
+            # _build_script_params generates the raw keys (without prefix if we pass raw)
+            # Wait, _build_script_params calls _full_key which uses self._config.key_prefix
+            # But C++ now takes a prefix argument.
+            # If we let C++ handle prefixing, we should pass pure RAW keys to _build_script_params?
+            # Or does _build_script_params just list keys?
+            
+            # Implementation detail:
+            # 1. We should pass the RAW user key (e.g. "user:123") to build_params? 
+            #    If _build_script_params adds prefix in Python, we double prefix.
+            #    Let's check _build_script_params. It calls _full_key.
+            
+            # We want C++ to do: sha256(raw_key) -> hash -> prefix + hash.
+            # So we should pass RAW key to _build_script_params, BUT modify _build_script_params
+            # to NOT add prefix.
+            
+            # Actually, let's keep it simple:
+            # Pass RAW key to _build_script_params. 
+            # We need to see if _build_script_params enforces prefix.
+            
             keys, args = self._build_script_params(key, now_ms)
             content, sha1 = self.script
             
-            # Call the C++ engine with SHA1 and content (for fallback)
-            status, value = self.client.eval_script(sha1, content, keys, args)
+            # Pass the prefix separately
+            prefix = self._config.key_prefix
+            
+            # Call the C++ engine with raw keys and prefix
+            status, value = self.client.eval_script(sha1, content, keys, args, prefix)
             
             return self._parse_result(int(status), value, now_ms)
         

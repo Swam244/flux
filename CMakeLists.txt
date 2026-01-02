@@ -60,6 +60,7 @@ find_package(pybind11 REQUIRED)
 pybind11_add_module(_flux_core
     src/cpp/main.cpp
     src/cpp/redis_client.cpp
+    src/cpp/sha256.cpp
 )
 
 # Link dependencies to the core module

@@ -63,7 +63,8 @@ public:
         const std::string& script_sha,
         const std::string& script_content,
         const std::vector<std::string>& keys,
-        const std::vector<long long>& args
+        const std::vector<long long>& args,
+        const std::string& key_prefix = ""
     );
 };
 

@@ -25,5 +25,6 @@ PYBIND11_MODULE(_flux_core, m) {
              py::arg("script_content"),
              py::arg("keys"),
              py::arg("args"),
-             "Execute with automatic fallback (EVALSHA -> SCRIPT LOAD -> EVALSHA).");
+             py::arg("key_prefix") = "",
+             "Execute with automatic fallback (EVALSHA -> SCRIPT LOAD -> EVALSHA). Hashing is performed internally.");
 }

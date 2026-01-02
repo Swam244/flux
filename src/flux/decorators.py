@@ -68,46 +68,43 @@ def rate_limit(
                     )
             return _limiter_instance
 
-        def generate_key(args, kwargs, func_name):
-            if key:
-                try:
-                    # Try to bind args if possible (inspect.signature is slow but safe?)
-                    # For performance, just pass what we have.
-                    # Ideally key func handles (request) or (*args)
-                    return key(*args, **kwargs)
-                except TypeError:
-                    # Fallback: Maybe key expects just the first arg (request)
-                    if args:
-                        return key(args[0])
-                    raise
+        from .identity import generate_identity
 
-            # Default Auto-Inference Strategy
-            req_obj = args[0] if args else None
+        def get_request(args, kwargs):
+            """
+            Heuristic to find the 'request' object in args or kwargs.
+            """
+            # 1. Check kwargs first (FastAPI/Flask often use 'request')
+            if "request" in kwargs:
+                return kwargs["request"]
+                
+            # 2. Check pos args (Django/Starlette)
+            for arg in args:
+                # Check for common attributes
+                if hasattr(arg, "method") and hasattr(arg, "url"):
+                    return arg
+                if hasattr(arg, "META") and hasattr(arg, "GET"): # Django
+                    return arg
+                if hasattr(arg, "client") and hasattr(arg, "scope"): # Starlette/FastAPI
+                    return arg
             
-            # 1. Django
-            if hasattr(req_obj, 'META') and hasattr(req_obj, 'user'):
-                user_id = str(req_obj.user.id) if req_obj.user.is_authenticated else None
-                ip = req_obj.META.get('REMOTE_ADDR', 'unknown')
-                return f"django:{user_id or ip}"
-            
-            # 2. FastAPI / Starlette
-            if hasattr(req_obj, 'client') and hasattr(req_obj, 'url'):
-                ip = req_obj.client.host if req_obj.client else 'unknown'
-                return f"fastapi:{ip}"
-            
-            # 3. Flask (Global context, req_obj might not be request)
+            # 3. Flask Global Context
             try:
                 from flask import request
-                # Verify if we are in a request context
-                if request and request.remote_addr:  
-                     return f"flask:{request.remote_addr}"
-            except (ImportError, RuntimeError, AttributeError):
+                if request:
+                    return request
+            except ImportError:
                 pass
+                
+            return None
 
-            # 4. Fallback: Function args hash
-            arg_str = str(args) + str(kwargs)
-            arg_hash = hashlib.md5(arg_str.encode()).hexdigest()
-            return f"func:{func_name}:{arg_hash}"
+        def get_final_key(args, kwargs, func_name):
+            request = get_request(args, kwargs)
+            
+            # If 'key' arg was passed to decorator, use it (callable or string)
+            # If not, generate_identity falls back to IP
+            identity_hash = generate_identity(request, key, prefix=name or func_name)
+            return identity_hash
 
         def check_limit_and_get_response(limiter, final_key, args):
             result = limiter.hit(final_key)
@@ -116,7 +113,7 @@ def rate_limit(
                 # Handle Rate Limit Exceeded
                 
                 # Django Response
-                if hasattr(args[0], 'META'):
+                if args and hasattr(args[0], 'META'):
                     from django.http import JsonResponse
                     resp = JsonResponse(
                         {"error": "Too Many Requests", "retry_after": int(result.retry_after)}, 
@@ -138,8 +135,7 @@ def rate_limit(
             @functools.wraps(func)
             async def wrapper(*args, **kwargs):
                 limiter = get_limiter()
-                limit_key = generate_key(args, kwargs, func.__name__)
-                final_key = f"{func.__name__}:{limit_key}"
+                final_key = get_final_key(args, kwargs, func.__name__)
                 
                 # Check limit (Sync operation, Redis is fast enough)
                 # If we need async redis, we'd need a different client
@@ -157,8 +153,7 @@ def rate_limit(
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 limiter = get_limiter()
-                limit_key = generate_key(args, kwargs, func.__name__)
-                final_key = f"{func.__name__}:{limit_key}"
+                final_key = get_final_key(args, kwargs, func.__name__)
                 
                 denied_response = check_limit_and_get_response(limiter, final_key, args)
                 if denied_response:
