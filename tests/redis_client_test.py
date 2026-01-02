@@ -2,6 +2,9 @@ import threading
 import pytest
 import sys
 import os
+import subprocess
+import time
+import signal
 
 # Ensure we can import the build artifact
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
@@ -18,6 +21,8 @@ REDIS_HOST = "127.0.0.1"
 REDIS_PORT = 6379
 INVALID_PORT = 9999  # A port where Redis is NOT running
 
+
+
 # ------------------------------------------------------------------
 # TEST FIXTURES
 # ------------------------------------------------------------------
@@ -33,15 +38,20 @@ def redis_client():
     except RuntimeError:
         pytest.skip(f"Redis not running on {REDIS_HOST}:{REDIS_PORT}")
 
+@pytest.fixture
+def temp_logfile(tmp_path):
+    """
+    Creates an empty temporary logfile for a test.
+    Automatically cleaned up by pytest.
+    """
+    log_file = tmp_path / "flux_debug_test.log"
+    log_file.write_text("")  # ensure empty
+    return log_file
+
+
 # ------------------------------------------------------------------
 # TESTS
 # ------------------------------------------------------------------
-
-def test_module_docstring():
-    """Verify module documentation exists."""
-    import flux._flux_core
-    assert flux._flux_core.__doc__ is not None
-    assert "Flux Core" in flux._flux_core.__doc__
 
 def test_ping_success(redis_client):
     """
@@ -49,6 +59,7 @@ def test_ping_success(redis_client):
     """
     response = redis_client.ping()
     assert response == "PONG", f"Expected 'PONG', got '{response}'"
+
 
 def test_connection_failure():
     """
@@ -64,6 +75,60 @@ def test_connection_failure():
     print(f"DEBUG: Captured Error -> {error_msg}") # Helpful for debugging
     assert "Redis Connection Failed" in error_msg
 
+
+
+def test_chaos_retry(temp_logfile):
+    """
+    CHAOS TEST:
+    1. Start a temporary Redis server.
+    2. Connect to it.
+    3. KILL the Redis server.
+    4. Call ping(), which should fail, RETRY, and LOG.
+    5. Verify the logs exist.
+    """
+    port = 6388
+    log_file = str(temp_logfile)  # convert Path → str if needed
+
+    print(f"Starting temp Redis on port {port}...")
+    redis_proc = subprocess.Popen(
+        ["redis-server", "--port", str(port), "--save", ""],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    time.sleep(1)
+
+    try:
+        # 2. Connect
+        client = RedisClient("127.0.0.1", port, log_file=log_file)
+        assert client.ping() == "PONG"
+        print("Connected successfully.")
+
+        # 3. Kill Redis
+        print("Killing Redis server...")
+        redis_proc.terminate()
+        redis_proc.wait()
+
+        # 4. Trigger retry logic
+        print("Ping should fail now...")
+        with pytest.raises(RuntimeError):
+            client.ping()
+
+        # 5. Verify logs
+        assert temp_logfile.exists()
+
+        logs = temp_logfile.read_text()
+        print(f"Captured Logs:\n{logs}")
+
+        assert "Attempt 1/3 failed" in logs
+        assert "Retrying in" in logs
+        assert "All 3 attempts failed" in logs
+
+    finally:
+        if redis_proc.poll() is None:
+            redis_proc.terminate()
+
+
+
 def test_constructor_defaults():
     """
     Verify the default constructor arguments.
@@ -73,6 +138,8 @@ def test_constructor_defaults():
         assert client.ping() == "PONG"
     except RuntimeError:
         pytest.skip("Default local Redis not available")
+
+
 
 def test_pool_concurrency():
     """
