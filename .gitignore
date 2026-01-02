@@ -4,8 +4,11 @@ __pycache__/
 *.so
 build/
 dist/
+.vscode
+.pytest_cache
 wheels/
 *.egg-info
-
+*.log
 # Virtual environments
 .venv
+flux_debug.log

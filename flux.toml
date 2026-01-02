@@ -1,0 +1,73 @@
+# =============================================================================
+# Flux Configuration
+# =============================================================================
+# This file configures the Flux rate limiter.
+# Works with Django, FastAPI, Flask, or any Python application.
+
+# -----------------------------------------------------------------------------
+# Redis Connection Settings
+# -----------------------------------------------------------------------------
+[redis]
+host = "127.0.0.1"
+port = 6379
+pool_size = 5
+timeout_ms = 200
+
+# -----------------------------------------------------------------------------
+# Flux Core Settings
+# -----------------------------------------------------------------------------
+[flux]
+key_prefix = "flux:"
+log_file = "flux_debug.log"
+
+# -----------------------------------------------------------------------------
+# Default Rate Limiting Settings
+# -----------------------------------------------------------------------------
+# These are used when creating a RateLimiter() without explicit parameters.
+#
+# Supported policies:
+#   - "gcra"          : Generic Cell Rate Algorithm (smooth, recommended)
+#   - "token_bucket"  : Token Bucket (bursty traffic)
+#   - "leaky_bucket"  : Leaky Bucket (smooth output)
+#   - "fixed_window"  : Fixed Window / FCFS (simple, but can have burst at window edges)
+
+[rate_limit]
+policy = "gcra"
+requests = 100          # Requests per period
+period = 60             # Period in seconds
+burst = 10              # Burst capacity (optional, defaults to requests)
+
+# -----------------------------------------------------------------------------
+# Named Rate Limit Configurations
+# -----------------------------------------------------------------------------
+# Define different rate limits for different endpoints/use cases.
+# Access them with: RateLimiter.from_config("name")
+#
+# Example:
+#   >>> api_limiter = RateLimiter.from_config("api")
+#   >>> login_limiter = RateLimiter.from_config("login")
+
+[rate_limits.api]
+# General API endpoints - generous limits
+requests = 1000
+period = 60
+policy = "gcra"
+
+[rate_limits.login]
+# Login endpoint - strict limits to prevent brute force
+requests = 5
+period = 300
+burst = 3
+policy = "token_bucket"
+
+[rate_limits.search]
+# Search endpoint - moderate limits
+requests = 30
+period = 60
+policy = "leaky_bucket"
+
+[rate_limits.webhook]
+# Webhook callbacks - very generous
+requests = 10000
+period = 60
+policy = "gcra"

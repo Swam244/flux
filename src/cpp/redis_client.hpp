@@ -1,49 +1,90 @@
 #pragma once
+
 #include <string>
 #include <vector>
-#include <memory>
 #include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <thread>
+#include <functional>
 #include <hiredis.h>
-
-// 1. HELPER: A smart pointer that automatically calls 'freeReplyObject'
-//    when it goes out of scope. Zero overhead.
-struct ReplyDeleter {
-    void operator()(redisReply* r) {
-        if (r) freeReplyObject(r);
-    }
-};
-
-using Reply = std::unique_ptr<redisReply, ReplyDeleter>;
-
+#include <spdlog/spdlog.h>
 
 class RedisClient {
+private:
+    std::string host;
+    int port;
+    int timeout_ms;
+    
+    std::queue<redisContext*> connection_pool;
+    size_t pool_size;
+    
+    std::mutex pool_mutex;
+    std::condition_variable pool_cv;
+    bool shutting_down = false;
+
+    // Helper: Create a single raw connection
+    redisContext* create_connection();
+
+    // Helper: Initialize logging
+    void setup_logging(const std::string& log_path);
+
 public:
-    RedisClient(std::string host, int port, int timeout_ms = 100);
+    // Constructor: Builds the pool immediately
+    RedisClient(std::string host, int port, size_t pool_size, int timeout_ms, std::string log_path);
+
+    // Destructor: Drains the pool
     ~RedisClient();
 
-    // The Main Interface
-    bool connect();
-    
-    // Run the GCRA script
-    // Returns: long long (the new TAT) or -1 on error
-    long long eval_gcra(const std::string& script_sha, 
-                        const std::string& script_content, 
-                        const std::string& key, 
-                        int burst, 
-                        int rate, 
-                        int period);
+    // Connection Guard for RAII-style pool borrowing
+    struct ConnectionGuard {
+        RedisClient& parent;
+        redisContext* ctx;
+        ConnectionGuard(RedisClient& client);
+        ~ConnectionGuard();
+    };
 
-private:
-    std::string host_;
-    int port_;
-    int timeout_ms_;
-    
-    // Raw pointer to the connection (managed manually by this class)
-    redisContext* context_ = nullptr; 
-    
-    // Mutex to make this thread-safe if multiple Python threads hit it
-    std::mutex mutex_;
+    // Generic Retry Wrapper
+    template <typename Func>
+    typename std::invoke_result<Func, redisContext*>::type 
+    execute_with_retry(Func func, int max_retries = 3, int base_delay_ms = 50);
 
-    // Internal helper to send commands safely
-    Reply send_command(const char* format, ...);
+    // Public API
+    std::string ping();
+    std::string load_script(const std::string& script_content);
+    
+    std::pair<long long, double> eval_sha(
+        const std::string& script_sha,
+        const std::vector<std::string>& keys,
+        const std::vector<long long>& args
+    );
+
+    std::pair<long long, double> eval_script(
+        const std::string& script_sha,
+        const std::string& script_content,
+        const std::vector<std::string>& keys,
+        const std::vector<long long>& args
+    );
 };
+
+// Template implementation must be in header (or explicitly instantiated)
+template <typename Func>
+typename std::invoke_result<Func, redisContext*>::type 
+RedisClient::execute_with_retry(Func func, int max_retries, int base_delay_ms) {
+    int attempt = 0;
+    while (true) {
+        try {
+            ConnectionGuard guard(*this);
+            return func(guard.ctx);
+        } catch (const std::exception& e) {
+            attempt++;
+            spdlog::warn("Attempt {}/{} failed: {}. Retrying in {}ms...", attempt, max_retries, e.what(), base_delay_ms * attempt);
+            
+            if (attempt > max_retries) {
+                spdlog::error("All {} attempts failed. Final error: {}", max_retries, e.what());
+                throw; 
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(base_delay_ms * attempt));
+        }
+    }
+}
