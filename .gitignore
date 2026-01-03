@@ -9,6 +9,10 @@ dist/
 wheels/
 *.egg-info
 *.log
+.pypirc
 # Virtual environments
 .venv
 flux_debug.log
+wheelhouse
+PUBLISH_GUIDE.md
+usage_example.py

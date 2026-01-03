@@ -76,13 +76,10 @@ wheels = [
 ]
 
 [[package]]
-name = "flux"
-version = "0.1.0"
+name = "flux-limiter"
+version = "0.1.4"
 source = { editable = "." }
 dependencies = [
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "pytest" },
     { name = "redis" },
     { name = "tomli" },
 ]
@@ -90,20 +87,25 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "pytest" },
+]
+test = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pytest" },
     { name = "pytest-django" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", specifier = ">=0.128.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.128.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-django", marker = "extra == 'dev'", specifier = ">=4.5.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.2" },
+    { name = "pytest-django", marker = "extra == 'test'", specifier = ">=4.5.0" },
     { name = "redis", specifier = ">=7.1.0" },
     { name = "tomli", specifier = ">=2.3.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["test", "dev"]
 
 [[package]]
 name = "h11"

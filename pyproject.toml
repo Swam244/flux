@@ -6,27 +6,34 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "flux"
-version = "0.1.0"
-description = "A high-performance, lightweight Django rate-limiter package"
+name = "flux_limiter"
+version = "0.1.5"
+description = "A high-performance, lightweight platform agnostic rate-limiter package"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.128.0",
-    "httpx>=0.28.1",
-    "pytest>=9.0.2",
     "redis>=7.1.0",
     "tomli>=2.3.0",
 ]
 
 [project.optional-dependencies]
+test = [
+    "fastapi>=0.128.0",
+    "httpx>=0.28.1",
+    "pytest>=9.0.2",
+    "pytest-django>=4.5.0", 
+]
 dev = [
     "pytest>=7.0.0",
-    "pytest-django>=4.5.0",
 ]
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = false
+wheel.packages = ["src/flux"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "src/flux/__init__.py"
 
 [tool.scikit-build.cmake]
 version = ">=3.15"

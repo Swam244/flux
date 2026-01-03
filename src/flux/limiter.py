@@ -45,21 +45,22 @@ def _get_script(policy: RateLimitPolicy) -> Tuple[str, str]:
         
         # Find the Lua script relative to this module
         module_dir = Path(__file__).parent
-        search_paths = [
-            module_dir.parent / "lua" / script_name,
-            module_dir / "lua" / script_name,
-            module_dir.parent.parent / "lua" / script_name,
-        ]
+        script_path = module_dir / "lua" / script_name
         
-        script_path = None
-        for path in search_paths:
-            if path.exists():
-                script_path = path
-                break
-        
-        if script_path is None:
+        if not script_path.exists():
+            # Fallback for dev environment or alternative layouts
+            search_paths = [
+                module_dir.parent / "lua" / script_name,
+                module_dir.parent.parent / "src" / "lua" / script_name,
+            ]
+            for path in search_paths:
+                if path.exists():
+                    script_path = path
+                    break
+
+        if not script_path.exists():
             raise FileNotFoundError(
-                f"Lua script '{script_name}' not found. Searched: {search_paths}"
+                f"Lua script '{script_name}' not found. Looked in {module_dir}/lua"
             )
 
         
@@ -239,6 +240,7 @@ class RateLimiter:
                     self._redis_config["pool_size"],
                     self._redis_config["timeout_ms"],
                     self._redis_config["log_file"],
+                    self._config.console_logging,
                 )
             except ImportError:
                 raise ConnectionError("Flux C++ core not found. Run 'pip install .'")
@@ -401,7 +403,19 @@ class RateLimiter:
             return self._parse_result(int(status), value, now_ms)
         
         except Exception as e:
-            raise ConnectionError(f"Rate limit check failed: {e}")
+            if self._config.fail_silently:
+                # Fail Open: Log error and allow request
+                import sys
+                print(f"[flux] [error] Rate limit check failed (Fail Open active): {e}", file=sys.stderr)
+                return RateLimitResult(
+                    allowed=True,
+                    remaining=1,
+                    retry_after=0,
+                    limit=self.requests
+                )
+            else:
+                # Fail Closed: Re-raise exception
+                raise ConnectionError(f"Rate limit check failed: {e}")
 
 
 def preload_scripts(config: Optional[FluxConfig] = None):
@@ -421,8 +435,9 @@ def preload_scripts(config: Optional[FluxConfig] = None):
             cfg.redis_host, 
             cfg.redis_port, 
             cfg.pool_size, 
-            cfg.timeout_ms, 
-            cfg.log_file
+            cfg.timeout_ms,
+            cfg.log_file,
+            cfg.console_logging
         )
         
         # Load all policies

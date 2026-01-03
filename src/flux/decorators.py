@@ -110,20 +110,55 @@ def rate_limit(
             result = limiter.hit(final_key)
             
             if not result.allowed:
-                # Handle Rate Limit Exceeded
-                
-                # Django Response
+                # ---------------------------------------------------------
+                # AUTO-RESPONSE GENERATION
+                # ---------------------------------------------------------
+                retry_str = str(int(result.retry_after))
+                headers = result.to_headers()
+                content = {
+                    "error": "Too Many Requests",
+                    "retry_after": int(result.retry_after),
+                    "detail": f"Rate limit exceeded. Try again in {retry_str} seconds."
+                }
+
+                # 1. Django Detection
+                # -------------------
                 if args and hasattr(args[0], 'META'):
-                    from django.http import JsonResponse
-                    resp = JsonResponse(
-                        {"error": "Too Many Requests", "retry_after": int(result.retry_after)}, 
-                        status=429
-                    )
-                    for h, v in result.to_headers().items():
-                        resp[h] = v
-                    return resp  # Return response object directly
-                
-                # Raise Exception for others (FastAPI catches this)
+                    try:
+                        from django.http import JsonResponse
+                        resp = JsonResponse(content, status=429)
+                        for h, v in headers.items():
+                            resp[h] = v
+                        return resp
+                    except ImportError:
+                        pass
+
+                # 2. Starlette / FastAPI Detection
+                # --------------------------------
+                # Heuristic: args[0] is often the request in middleware, or we found it earlier
+                # But here we just want to return a JSONResponse if Starlette is present
+                try:
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(content, status_code=429, headers=headers)
+                except ImportError:
+                    pass
+
+                # 3. Flask Detection
+                # ------------------
+                # Flask routes usually return (body, status, headers) tuple
+                try:
+                    import flask
+                    # Check if we are in a request context to be sure
+                    if flask.request:
+                        from flask import jsonify, make_response
+                        resp = make_response(jsonify(content), 429)
+                        for h, v in headers.items():
+                            resp.headers[h] = v
+                        return resp
+                except (ImportError, RuntimeError):
+                    pass
+
+                # Fallback: If no framework detected or imports fail, raise exception
                 raise RateLimitExceeded(key=final_key, retry_after=result.retry_after)
             
             return None # Allowed
@@ -131,6 +166,8 @@ def rate_limit(
         # ---------------------------------------------------------
         # ASYNC WRAPPER
         # ---------------------------------------------------------
+        
+
         if is_async:
             @functools.wraps(func)
             async def wrapper(*args, **kwargs):

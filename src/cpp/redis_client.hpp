@@ -27,11 +27,11 @@ private:
     redisContext* create_connection();
 
     // Helper: Initialize logging
-    void setup_logging(const std::string& log_path);
+    void setup_logging(const std::string& log_path, bool enable_console_logging);
 
 public:
     // Constructor: Builds the pool immediately
-    RedisClient(std::string host, int port, size_t pool_size, int timeout_ms, std::string log_path);
+    RedisClient(std::string host, int port, size_t pool_size, int timeout_ms, std::string log_path, bool enable_console_logging = false);
 
     // Destructor: Drains the pool
     ~RedisClient();

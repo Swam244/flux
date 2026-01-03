@@ -12,39 +12,40 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
 # -----------------------------------------------------------------------------
 # DEPENDENCY MANAGEMENT 
-# -----------------------------------------------------------------------------
 include(FetchContent)
 
-# 1. fmt (String formatting)
+# Disable installation of dependencies
+set(FMT_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+
+# 1. fmt
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
     GIT_TAG        10.1.1
 )
 
-# 2. toml++ (Configuration parsing for flux.toml)
+# 2. toml++
 FetchContent_Declare(
     tomlplusplus
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
     GIT_TAG        v3.4.0
 )
 
-# 3. hiredis (Redis C client for Distributed State)
-# Force static linking to avoid runtime library path issues
+# 3. hiredis
 FetchContent_Declare(
     hiredis
     GIT_REPOSITORY https://github.com/redis/hiredis.git
     GIT_TAG        v1.2.0
 )
 
-# 4. spdlog (Fast C++ logging library)
+# 4. spdlog
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG        v1.13.0
 )
 
-# Make dependencies available immediately
 FetchContent_MakeAvailable(fmt tomlplusplus hiredis spdlog)
 
 
@@ -122,3 +123,5 @@ if(MSVC)
 else()
     target_compile_options(_flux_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+install(TARGETS _flux_core DESTINATION flux)

@@ -8,11 +8,13 @@
 // RedisClient Implementation
 // ============================================================================
 
-RedisClient::RedisClient(std::string host, int port, size_t pool_size, int timeout_ms, std::string log_path) 
+RedisClient::RedisClient(std::string host, int port, size_t pool_size, int timeout_ms, std::string log_path, bool enable_console_logging) 
     : host(host), port(port), pool_size(pool_size), timeout_ms(timeout_ms) {
     
-    setup_logging(log_path);
-    spdlog::debug("Initializing RedisClient with pool_size={}", pool_size);
+    setup_logging(log_path, enable_console_logging);
+    if (enable_console_logging) {
+        spdlog::debug("Initializing RedisClient with pool_size={}", pool_size);
+    }
 
     for (size_t i = 0; i < pool_size; i++) {
         connection_pool.push(create_connection());
@@ -44,23 +46,35 @@ redisContext* RedisClient::create_connection() {
     return ctx;
 }
 
-void RedisClient::setup_logging(const std::string& log_path) {
+void RedisClient::setup_logging(const std::string& log_path, bool enable_console_logging) {
     if (spdlog::get("flux")) {
         spdlog::drop("flux");
     }
 
     try {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_path, false); 
+        std::vector<spdlog::sink_ptr> sinks;
         
-        std::vector<spdlog::sink_ptr> sinks {console_sink, file_sink};
+        // Always add file sink
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_path, false); 
+        sinks.push_back(file_sink);
+
+        // Conditionally add console sink
+        if (enable_console_logging) {
+            auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+            sinks.push_back(console_sink);
+        }
+        
         auto logger = std::make_shared<spdlog::logger>("flux", sinks.begin(), sinks.end());
         
         spdlog::set_default_logger(logger);
         spdlog::set_level(spdlog::level::debug);
         spdlog::flush_on(spdlog::level::debug);
         
-        spdlog::info("Flux logging initialized. Writing to console and {}", log_path);
+        if (enable_console_logging) {
+            spdlog::info("Flux logging initialized. Writing to console and {}", log_path);
+        } else {
+            spdlog::info("Flux logging initialized. Writing to {}", log_path);
+        }
     } catch (const spdlog::spdlog_ex& ex) {
         std::cerr << "Log init failed: " << ex.what() << std::endl;
     }

@@ -51,6 +51,8 @@ class FluxConfig:
     # Flux settings
     key_prefix: str = "flux:"
     log_file: str = "flux_debug.log"
+    fail_silently: bool = True  # If True, allow requests when Redis is down
+    console_logging: bool = False # If True, enable console logging
     
     # Rate limiting settings
     policy: RateLimitPolicy = RateLimitPolicy.GCRA
@@ -123,6 +125,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
         timeout_ms=redis.get("timeout_ms", 200),
         key_prefix=flux.get("key_prefix", "flux:"),
         log_file=flux.get("log_file", "flux_debug.log"),
+        fail_silently=flux.get("fail_silently", True),
+        console_logging=flux.get("console_logging", False),
         policy=policy,
         rate_limit_defaults=defaults,
         rate_limits=rate_limits,
