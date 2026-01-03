@@ -1,8 +1,4 @@
-"""
-Flux Configuration Loader
 
-Loads Redis connection settings and rate limiting configuration from flux.toml
-"""
 
 import os
 from pathlib import Path

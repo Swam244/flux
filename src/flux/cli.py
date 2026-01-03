@@ -1,7 +1,3 @@
-"""
-Flux CLI - Configuration Generation Tool
-"""
-
 import sys
 import argparse
 from pathlib import Path

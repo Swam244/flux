@@ -1,12 +1,4 @@
-"""
-Flux Decorators
 
-Provides the @rate_limit decorator for easy integration with:
-- Django Views
-- FastAPI Endpoints
-- Flask Routes
-- Regular Python Functions
-"""
 
 import functools
 import inspect
@@ -133,22 +125,14 @@ def rate_limit(
                     except ImportError:
                         pass
 
-                # 2. Starlette / FastAPI Detection
-                # --------------------------------
-                # Heuristic: args[0] is often the request in middleware, or we found it earlier
-                # But here we just want to return a JSONResponse if Starlette is present
-                try:
-                    from starlette.responses import JSONResponse
-                    return JSONResponse(content, status_code=429, headers=headers)
-                except ImportError:
-                    pass
-
-                # 3. Flask Detection
+                # 2. Flask Detection
                 # ------------------
                 # Flask routes usually return (body, status, headers) tuple
+                # Check this before Starlette because Starlette might be installed in env
                 try:
                     import flask
                     # Check if we are in a request context to be sure
+                    # Accessing flask.request raises RuntimeError if outside context
                     if flask.request:
                         from flask import jsonify, make_response
                         resp = make_response(jsonify(content), 429)
@@ -156,6 +140,16 @@ def rate_limit(
                             resp.headers[h] = v
                         return resp
                 except (ImportError, RuntimeError):
+                    pass
+
+                # 3. Starlette / FastAPI Detection
+                # --------------------------------
+                # Heuristic: args[0] is often the request in middleware, or we found it earlier
+                # But here we just want to return a JSONResponse if Starlette is present
+                try:
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(content, status_code=429, headers=headers)
+                except ImportError:
                     pass
 
                 # Fallback: If no framework detected or imports fail, raise exception

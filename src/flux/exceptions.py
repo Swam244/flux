@@ -1,8 +1,3 @@
-"""
-Flux Exceptions
-"""
-
-
 class FluxError(Exception):
     """Base exception for all Flux errors."""
     pass

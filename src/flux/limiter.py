@@ -1,18 +1,8 @@
-"""
-Flux Rate Limiter
-
-Framework-agnostic, policy-configurable rate limiting.
-Supports Django, FastAPI, Flask, and any Python application.
-
-The rate limiting algorithm is configured via TOML and executed 
-by the C++ engine using Lua scripts on Redis.
-"""
-
 import time
 import random
 import hashlib
 from pathlib import Path
-from typing import Optional, Tuple, List, Callable, Dict, Any
+from typing import Optional, Tuple, List, Callable, Dict, Any, Union
 from dataclasses import dataclass
 
 from ._flux_core import RedisClient
@@ -102,39 +92,7 @@ class RateLimitResult:
 class RateLimiter:
     """
     Framework-agnostic rate limiter using Redis.
-    
-    The rate limiting algorithm is configurable via TOML config or constructor.
     Supports: GCRA, Token Bucket, Leaky Bucket, Fixed Window.
-    
-    Works with Django, FastAPI, Flask, or any Python application.
-    
-    Example (Basic):
-        >>> limiter = RateLimiter(requests=100, period=60)
-        >>> 
-        >>> if limiter.is_allowed("user:123"):
-        ...     process_request()
-        ... else:
-        ...     return "Too many requests"
-    
-    Example (FastAPI):
-        >>> from flux import RateLimiter
-        >>> limiter = RateLimiter()
-        >>> 
-        >>> @app.get("/api/data")
-        >>> async def get_data(request: Request):
-        ...     result = limiter.check(f"user:{request.user.id}")
-        ...     if not result.allowed:
-        ...         raise HTTPException(429, headers=result.to_headers())
-        ...     return {"data": "..."}
-    
-    Example (Flask):
-        >>> limiter = RateLimiter.from_config("api")  # Uses [rate_limits.api] from TOML
-        >>> 
-        >>> @app.before_request
-        >>> def check_rate_limit():
-        ...     result = limiter.check(request.remote_addr)
-        ...     if not result.allowed:
-        ...         return "Too Many Requests", 429, result.to_headers()
     """
     
     def __init__(
@@ -143,7 +101,7 @@ class RateLimiter:
         period: Optional[int] = None,
         *,
         burst: Optional[int] = None,
-        policy: Optional[RateLimitPolicy] = None,
+        policy: Optional[Union[RateLimitPolicy, str]] = None,
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
         config: Optional[FluxConfig] = None,
@@ -176,6 +134,12 @@ class RateLimiter:
         else:
             # Use global default
             self.burst = defaults.burst or self.requests
+        if isinstance(policy, str):
+            try:
+                policy = RateLimitPolicy(policy.lower())
+            except ValueError:
+                raise ValueError(f"Invalid policy name: {policy}")
+                
         self.policy = policy or self._config.policy
         
         # Redis config (use provided values or from config)
@@ -195,21 +159,6 @@ class RateLimiter:
     def from_config(cls, name: str, config: Optional[FluxConfig] = None) -> "RateLimiter":
         """
         Create a RateLimiter from a named config in flux.toml.
-        
-        Example flux.toml:
-            [rate_limits.api]
-            requests = 1000
-            period = 60
-            policy = "gcra"
-            
-            [rate_limits.login]
-            requests = 5
-            period = 300
-            policy = "token_bucket"
-        
-        Usage:
-            >>> api_limiter = RateLimiter.from_config("api")
-            >>> login_limiter = RateLimiter.from_config("login")
         """
         cfg = config or get_config()
         
@@ -388,24 +337,6 @@ class RateLimiter:
             # The C++ engine handles SHA256 hashing and prefixing.
             # This improves performance and security centralization.
             
-            # _build_script_params generates the raw keys (without prefix if we pass raw)
-            # Wait, _build_script_params calls _full_key which uses self._config.key_prefix
-            # But C++ now takes a prefix argument.
-            # If we let C++ handle prefixing, we should pass pure RAW keys to _build_script_params?
-            # Or does _build_script_params just list keys?
-            
-            # Implementation detail:
-            # 1. We should pass the RAW user key (e.g. "user:123") to build_params? 
-            #    If _build_script_params adds prefix in Python, we double prefix.
-            #    Let's check _build_script_params. It calls _full_key.
-            
-            # We want C++ to do: sha256(raw_key) -> hash -> prefix + hash.
-            # So we should pass RAW key to _build_script_params, BUT modify _build_script_params
-            # to NOT add prefix.
-            
-            # Actually, let's keep it simple:
-            # Pass RAW key to _build_script_params. 
-            # We need to see if _build_script_params enforces prefix.
             
             keys, args = self._build_script_params(key, now_ms)
             content, sha1 = self.script
@@ -535,23 +466,6 @@ def create_limiter(
 ) -> RateLimiter:
     """
     Convenience function to create a rate limiter.
-    
-    Args:
-        name: Named config from flux.toml (e.g., "api", "login")
-        requests: Requests per period (if not using named config)
-        period: Period in seconds (if not using named config)
-        burst: Burst capacity (if not using named config)
-        policy: Policy name as string (if not using named config)
-    
-    Returns:
-        Configured RateLimiter instance
-    
-    Example:
-        >>> # From named config
-        >>> limiter = create_limiter("api")
-        >>> 
-        >>> # Or with parameters
-        >>> limiter = create_limiter(requests=100, period=60, policy="gcra")
     """
     if name:
         return RateLimiter.from_config(name)

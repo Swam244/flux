@@ -6,11 +6,21 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "flux_limiter"
-version = "0.1.9"
-description = "A high-performance, lightweight platform agnostic rate-limiter package"
+name = "flux-limiter"
+version = "0.1.11"
+description = "A High performance framework-agnostic rate limiter for Django, FastAPI, and Flask"
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Swayam Jain" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Framework :: Django",
+  "Framework :: FastAPI",
+  "Framework :: Flask",
+  "Intended Audience :: Developers",
+]
 dependencies = [
     "redis>=7.1.0",
     "tomli>=2.3.0",
@@ -18,6 +28,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
+    "flask>=3.1.2",
+    "django>=5.2.9",
     "fastapi>=0.128.0",
     "httpx>=0.28.1",
     "pytest>=9.0.2",
