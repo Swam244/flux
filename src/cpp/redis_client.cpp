@@ -2,6 +2,9 @@
 #include <fmt/core.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#ifdef _WIN32
+  #include <winsock2.h>
+#endif
 #include <iostream>
 
 // ============================================================================
@@ -35,7 +38,10 @@ RedisClient::~RedisClient() {
 // ----------------------------------------------------------------------------
 
 redisContext* RedisClient::create_connection() {
-    struct timeval timeout = { 0, timeout_ms * 1000 };
+    struct timeval timeout;
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
     redisContext* ctx = redisConnectWithTimeout(host.c_str(), port, timeout);
     
     if (ctx == nullptr || ctx->err) {
