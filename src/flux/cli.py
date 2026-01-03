@@ -28,6 +28,12 @@ timeout_ms = 200
 [flux]
 key_prefix = "flux:"
 log_file = "flux_debug.log"
+fail_silently = true        # If true, allow requests when Redis is down
+console_logging = false     # If true, enable console logging
+
+# Jitter helps prevent thundering herd by adding random variance to Retry-After
+jitter_enabled = false      # Disabled by default
+jitter_max_ms = 1000        # Max jitter to add in milliseconds (if enabled)
 
 # -----------------------------------------------------------------------------
 # Default Rate Limiting Settings
@@ -104,6 +110,57 @@ def init_config():
         sys.exit(1)
 
 
+
+def clear_state(config_path: str = None):
+    """
+    Clear all Flux rate limit keys from Redis.
+    """
+    try:
+        import redis
+        try:
+            # Need to do relative import if running as module, or robust import
+            from .config import load_config
+        except ImportError:
+            # If running directly inside src/flux, path hacking might be needed or just fail
+            print("Error: Could not import flux.config. Run as 'python -m flux.cli'")
+            return
+
+        cfg = load_config(config_path)
+        
+        print(f"Connecting to Redis at {cfg.redis_host}:{cfg.redis_port}...")
+        r = redis.Redis(
+            host=cfg.redis_host,
+            port=cfg.redis_port,
+            db=0, # Default DB
+            decode_responses=True
+        )
+        
+        prefix = cfg.key_prefix
+        pattern = f"{prefix}*"
+        print(f"Scanning for keys matching '{pattern}'...")
+        
+        keys = []
+        cursor = '0'
+        while cursor != 0:
+            cursor, batch = r.scan(cursor=cursor, match=pattern, count=100)
+            keys.extend(batch)
+            
+        if not keys:
+            print("No keys found.")
+            return
+            
+        print(f"Found {len(keys)} keys. Deleting...")
+        r.delete(*keys)
+        print("Done! Rate limit state cleared.")
+        
+    except ImportError:
+        print("Error: 'redis' package not installed. Cannot clear state.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error clearing state: {e}")
+        sys.exit(1)
+
+
 def main():
     """Entry point for python -m flux.cli"""
     parser = argparse.ArgumentParser(description="Flux Rate Limiter CLI")
@@ -123,17 +180,27 @@ def main():
         help="Overwrite existing file"
     )
     
+    # clear command
+    clear_parser = subparsers.add_parser("clear", help="Clear all rate limit keys from Redis")
+    clear_parser.add_argument(
+        "--config", "-c",
+        help="Path to flux.toml (optional)"
+    )
+    
     args = parser.parse_args()
     
     if args.command == "init":
-        # Manually reconstruct args for init_config
-        # This is a bit hacky but keeps logic simple
+        # Manually reconstruct args (legacy behavior preserved)
         sys.argv = [sys.argv[0]] 
         if args.force:
             sys.argv.append("--force")
         if args.path:
             sys.argv.append(args.path)
         init_config()
+        
+    elif args.command == "clear":
+        clear_state(args.config)
+        
     else:
         parser.print_help()
 

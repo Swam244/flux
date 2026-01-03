@@ -16,3 +16,5 @@ flux_debug.log
 wheelhouse
 PUBLISH_GUIDE.md
 usage_example.py
+repro_issue.py
+repro_no_config.py

@@ -60,6 +60,10 @@ class FluxConfig:
     
     # Named rate limit configs (e.g., {"api": {...}, "login": {...}})
     rate_limits: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    
+    # Jitter settings
+    jitter_enabled: bool = False
+    jitter_max_ms: int = 1000
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
@@ -91,6 +95,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
                 break
     
     if config_path is None or not Path(config_path).exists():
+        import sys
+        print("[flux] [warning] Configuration file 'flux.toml' not found. Using defaults.", file=sys.stderr)
         return FluxConfig()
     
     try:
@@ -127,6 +133,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
         log_file=flux.get("log_file", "flux_debug.log"),
         fail_silently=flux.get("fail_silently", True),
         console_logging=flux.get("console_logging", False),
+        jitter_enabled=flux.get("jitter_enabled", False),
+        jitter_max_ms=flux.get("jitter_max_ms", 1000),
         policy=policy,
         rate_limit_defaults=defaults,
         rate_limits=rate_limits,

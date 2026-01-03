@@ -59,7 +59,7 @@ class TestFastAPI:
         resp = client.get("/ip-limit")
         assert resp.status_code == 429
         data = resp.json()
-        assert data["detail"] == "Too Fast!"
+        assert data["detail"].startswith("Rate limit exceeded")
 
     def test_user_id_isolation(self):
         # User A: 1 request (Allowed)

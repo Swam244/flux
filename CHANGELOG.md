@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.9] - 2026-01-03
+### Added
+- **Jitter Support**: Added support for adding random jitter to the `Retry-After` header to prevent thundering herd problems.
+    - `jitter_enabled`: Configurable via `flux.toml` (default `false`).
+    - `jitter_max_ms`: Configurable max jitter window (default `1000` ms).
+- **CLI Improvements**: `flux init` now generates a comprehensive `flux.toml` containing all available configuration settings, including new logging and jitter options.
+## [0.1.8] - 2026-01-03
+### Changed
+- **Developer Experience**: Added explicit console warning (stderr) when `flux.toml` is not found, alerting users they are running with default configuration.
+
+## [0.1.7] - 2026-01-03
+### Added
+- **CLI**: Added `python -m flux.cli clear` command to wipe all Flux rate limit keys from Redis. Useful for resetting state during development.
+
+## [0.1.6] - 2026-01-03
+### Added
+- **Configurable Console Logging**: Added `console_logging` option to `flux.toml` (and `FluxConfig`).
+    - Default is `false` (silent stdout).
+    - Can be enabled for debugging.
+- **Internal**: Updated C++ `RedisClient` to support conditional logging sinks.
+
 ## [0.1.5] - 2026-01-03
 ### Added
 - **Configurable Console Logging**: Added `console_logging` option to `flux.toml` (and `FluxConfig`).

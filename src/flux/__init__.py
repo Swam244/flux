@@ -54,7 +54,7 @@ Supported Policies:
 
 import warnings
 
-__version__ = "0.1.0"
+__version__ = "0.1.9"
 
 # Exceptions
 from .exceptions import FluxError, RateLimitExceeded, ConnectionError

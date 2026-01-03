@@ -9,6 +9,7 @@ by the C++ engine using Lua scripts on Redis.
 """
 
 import time
+import random
 import hashlib
 from pathlib import Path
 from typing import Optional, Tuple, List, Callable, Dict, Any
@@ -166,7 +167,15 @@ class RateLimiter:
         defaults = self._config.rate_limit_defaults
         self.requests = requests or defaults.requests
         self.period = period or defaults.period
-        self.burst = burst or defaults.burst or self.requests
+        
+        if burst is not None:
+            self.burst = burst
+        elif requests is not None:
+            # If requests is explicit, default burst to it (ignore global default)
+            self.burst = requests
+        else:
+            # Use global default
+            self.burst = defaults.burst or self.requests
         self.policy = policy or self._config.policy
         
         # Redis config (use provided values or from config)
@@ -345,10 +354,17 @@ class RateLimiter:
             )
         else:
             # Denied - value is retry_after in seconds
+            retry_after = float(value)
+            
+            # Add Jitter if enabled
+            if self._config.jitter_enabled and self._config.jitter_max_ms > 0:
+                jitter = random.uniform(0, self._config.jitter_max_ms / 1000.0)
+                retry_after += jitter
+            
             return RateLimitResult(
                 allowed=False,
                 remaining=0,
-                retry_after=float(value),
+                retry_after=retry_after,
                 limit=self.requests,
             )
     
