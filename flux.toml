@@ -20,6 +20,11 @@ timeout_ms = 200
 key_prefix = "flux:"
 log_file = "flux_debug.log"
 
+# Analytics Settings
+[analytics]
+enabled = true
+port = 4444
+
 # -----------------------------------------------------------------------------
 # Default Rate Limiting Settings
 # -----------------------------------------------------------------------------

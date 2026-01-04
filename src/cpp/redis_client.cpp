@@ -159,14 +159,14 @@ std::string RedisClient::load_script(const std::string& script_content) {
     });
 }
 
-std::pair<long long, double> RedisClient::eval_sha(
+std::vector<long long> RedisClient::eval_sha(
     const std::string& script_sha,
     const std::vector<std::string>& keys,
     const std::vector<long long>& args
 ) {
     spdlog::debug("eval_sha: keys={}, args={}, sha={}", keys.size(), args.size(), script_sha);
 
-    return execute_with_retry([&](redisContext* ctx) -> std::pair<long long, double> {
+    return execute_with_retry([&](redisContext* ctx) -> std::vector<long long> {
         std::vector<const char*> argv;
         std::vector<size_t> argvlen;
         std::vector<std::string> arg_strings;
@@ -209,16 +209,31 @@ std::pair<long long, double> RedisClient::eval_sha(
             throw std::runtime_error("NOSCRIPT");
         }
 
-        std::pair<long long, double> result;
+        std::vector<long long> result;
 
-        if (reply->type == REDIS_REPLY_ARRAY && reply->elements >= 2) {
-            long long status = reply->element[0]->integer;
-            long long value = reply->element[1]->integer;
-            result = {status, static_cast<double>(value)};
+        if (reply->type == REDIS_REPLY_ARRAY) {
+            result.reserve(reply->elements);
+            for(size_t i = 0; i < reply->elements; i++) {
+                if(reply->element[i]->type == REDIS_REPLY_INTEGER) {
+                    result.push_back(reply->element[i]->integer);
+                } else if(reply->element[i]->type == REDIS_REPLY_STRING) {
+                     // Try to convert string to long long if needed, or just 0
+                     try {
+                        result.push_back(std::stoll(reply->element[i]->str));
+                     } catch (...) {
+                         result.push_back(0); 
+                     }
+                } else {
+                     result.push_back(0); // Fallback
+                }
+            }
         } else if (reply->type == REDIS_REPLY_ERROR) {
             std::string error = reply->str;
             freeReplyObject(reply);
             throw std::runtime_error("Lua error: " + error);
+        } else if (reply->type == REDIS_REPLY_INTEGER) {
+            // Single integer return (shouldn't happen with our scripts but safe to handle)
+            result.push_back(reply->integer);
         } else {
             freeReplyObject(reply);
             throw std::runtime_error("Unexpected reply type");
@@ -239,7 +254,7 @@ std::pair<long long, double> RedisClient::eval_sha(
 
 // ...
 
-std::pair<long long, double> RedisClient::eval_script(
+std::vector<long long> RedisClient::eval_script(
     const std::string& script_sha,
     const std::string& script_content,
     const std::vector<std::string>& raw_keys,

@@ -1,6 +1,7 @@
 import time
 import random
 import hashlib
+import redis # type: ignore
 from pathlib import Path
 from typing import Optional, Tuple, List, Callable, Dict, Any, Union
 from dataclasses import dataclass
@@ -8,6 +9,11 @@ from dataclasses import dataclass
 from ._flux_core import RedisClient
 from .config import get_config, FluxConfig, RateLimitPolicy, RateLimitDefaults
 from .exceptions import RateLimitExceeded, ConnectionError
+from .analytics import AnalyticsServer
+from .stats import StatsProvider
+
+# Global singleton for the analytics server
+_ANALYTICS_SERVER: Optional[AnalyticsServer] = None
 
 
 # =============================================================================
@@ -70,17 +76,21 @@ def _get_script(policy: RateLimitPolicy) -> Tuple[str, str]:
 class RateLimitResult:
     """Result of a rate limit check."""
     allowed: bool
-    remaining: int
-    retry_after: float
+    remaining: int = 0
+    reset_after: Optional[int] = None
+    retry_after: Optional[float] = None
     limit: int = 0
+    usage: int = 0 # Used capacity (tokens used, or tat offset)
     
-    def to_headers(self) -> dict:
+    def to_headers(self) -> Dict[str, str]:
         """Generate standard HTTP rate limit headers."""
         headers = {
             "X-RateLimit-Limit": str(self.limit),
             "X-RateLimit-Remaining": str(max(0, self.remaining)),
         }
-        if not self.allowed:
+        if self.reset_after is not None:
+            headers["X-RateLimit-Reset"] = str(self.reset_after)
+        if not self.allowed and self.retry_after is not None:
             headers["Retry-After"] = str(int(self.retry_after))
         return headers
 
@@ -121,6 +131,8 @@ class RateLimiter:
         # Load config
         self._config = config or get_config()
         
+
+        
         # Rate limit parameters (use provided values or defaults from config)
         defaults = self._config.rate_limit_defaults
         self.requests = requests or defaults.requests
@@ -150,6 +162,13 @@ class RateLimiter:
             "timeout_ms": self._config.timeout_ms,
             "log_file": self._config.log_file,
         }
+        
+        # Initialize Analytics Server if enabled (Singleton)
+        if self._config.analytics_enabled:
+            # We need a StatsProvider. It needs a Redis client.
+            # We can use the same redis-py client we use for metrics.
+            provider = StatsProvider(self.metrics_client, self._config.key_prefix)
+            self.analytics = self._get_analytics_server(self._config, provider)
         
         self._client = None
         self._script_content: Optional[str] = None
@@ -207,6 +226,22 @@ class RateLimiter:
         return self._client
     
     @property
+    def metrics_client(self):
+        """Lazy-load standard Redis client for metrics."""
+        if not hasattr(self, "_metrics_r"):
+            try:
+                self._metrics_r = redis.Redis(
+                    host=self._redis_config["host"],
+                    port=self._redis_config["port"],
+                    decode_responses=True,
+                    socket_timeout=self._redis_config["timeout_ms"] / 1000.0,
+                    socket_connect_timeout=self._redis_config["timeout_ms"] / 1000.0,
+                )
+            except Exception:
+                self._metrics_r = None
+        return self._metrics_r
+    
+    @property
     def script(self) -> Tuple[str, str]:
         """Lazy-load the Lua script content and SHA1."""
         if self._script_content is None:
@@ -224,7 +259,7 @@ class RateLimiter:
         """Current time in milliseconds."""
         return int(time.time() * 1000)
     
-    def _build_script_params(self, key: str, now_ms: int) -> Tuple[List[str], List[int]]:
+    def _build_script_params(self, key: str, now_ms: int, endpoint: str = "") -> Tuple[List[str], List[Union[str, int]]]:
         """
         Build the keys and args for the Lua script based on the policy.
         
@@ -233,91 +268,114 @@ class RateLimiter:
         """
         full_key = self._full_key(key)
         
+        # Base KEYS and ARGV
+        keys = [full_key]
+        args = []
+        
+        # Policy Specific Args
         if self.policy == RateLimitPolicy.GCRA:
-            # GCRA: emission_interval, delay_tolerance, now
             emission_interval_ms = int((self.period * 1000) / self.requests)
             delay_tolerance_ms = emission_interval_ms * self.burst
-            return (
-                [full_key],
-                [emission_interval_ms, delay_tolerance_ms, now_ms]
-            )
+            args = [emission_interval_ms, delay_tolerance_ms, now_ms]
         
         elif self.policy == RateLimitPolicy.TOKEN_BUCKET:
-            # Token Bucket: capacity, refill_rate, now
             capacity = self.burst
-            refill_rate = self.requests / self.period  # tokens per second
-            return (
-                [full_key],
-                [capacity, int(refill_rate), now_ms]
-            )
-        
+            refill_time_ms = int((self.period * 1000) / self.requests)
+            args = [capacity, refill_time_ms, now_ms]
+            
         elif self.policy == RateLimitPolicy.LEAKY_BUCKET:
-            # Leaky Bucket: capacity, leak_rate, now
             capacity = self.burst
-            leak_rate = self.requests / self.period  # units per second
-            return (
-                [full_key],
-                [capacity, int(leak_rate), now_ms]
-            )
-        
+            leak_time_ms = int((self.period * 1000) / self.requests)
+            args = [capacity, leak_time_ms, now_ms]
+            
         elif self.policy == RateLimitPolicy.FIXED_WINDOW:
-            # Fixed Window (FCFS): max_requests, window_ms, now
-            # FCFS uses 2 keys: limit_key and queue_key
-            queue_key = f"{full_key}:queue"
+            keys.append(f"{full_key}:queue")
             window_ms = self.period * 1000
-            return (
-                [full_key, queue_key],
-                [self.requests, window_ms, now_ms]
-            )
-        
+            args = [self.requests, window_ms, now_ms]
+            
         else:
             raise ValueError(f"Unsupported policy: {self.policy}")
-    
-    def _parse_result(self, status: int, value: float, now_ms: int) -> RateLimitResult:
-        """
-        Parse the Lua script result into a RateLimitResult.
+
+        # Analytics Arguments (if enabled)
+        # KEYS: [1]... [2] stats_ep_key, [3] stats_global_key, [4] stats_ep_set
+        # ARGV: ... [4] record_analytics, [5] endpoint_name, [6] meta_requests ...
         
-        The interpretation depends on the policy and status.
-        """
-        if status == 0:
-            # Allowed
-            if self.policy == RateLimitPolicy.GCRA:
-                # value is new TAT, calculate remaining
-                new_tat = int(value)
-                emission_interval_ms = int((self.period * 1000) / self.requests)
-                delay_tolerance_ms = emission_interval_ms * self.burst
-                remaining = int((delay_tolerance_ms - (new_tat - now_ms)) / emission_interval_ms)
-                remaining = max(0, min(remaining, self.burst - 1))
-            elif self.policy in (RateLimitPolicy.TOKEN_BUCKET, RateLimitPolicy.LEAKY_BUCKET):
-                # value is remaining tokens/capacity
-                remaining = int(value)
-            else:
-                # Fixed window - value is queue position (0 = immediate)
-                remaining = self.requests - 1
+        if self._config.analytics_enabled and endpoint:
+            prefix = self._config.key_prefix
+            keys.append(f"{prefix}stats:ep:{endpoint}")
+            keys.append(f"{prefix}stats:global")
+            keys.append(f"{prefix}stats:endpoints")
             
-            return RateLimitResult(
-                allowed=True,
-                remaining=remaining,
-                retry_after=0,
-                limit=self.requests,
-            )
+            args.append(1) # record_analytics = true
+            args.append(endpoint)
+            args.append(self.requests)
+            args.append(self.period)
+            args.append(self.burst)
+            args.append(self.policy.value)
+            args.append(3600) # ttl
         else:
-            # Denied - value is retry_after in seconds
-            retry_after = float(value)
+            # Pass 0 to indicate no analytics
+            args.append(0)
             
+        return keys, args
+    
+    def _parse_result(self, status: int, value: Union[int, list], now_ms: int) -> RateLimitResult:
+        """Parse the result from the Lua script."""
+        usage = 0
+        
+        # New Lua scripts return {allowed_code, value, usage}
+        if isinstance(value, list) and len(value) >= 2:
+            retry_after_or_tokens = value[1]
+            if len(value) >= 3:
+                usage = int(value[2])
+        else:
+            retry_after_or_tokens = value
+
+        if status == 0:  # Allowed
             # Add Jitter if enabled
             if self._config.jitter_enabled and self._config.jitter_max_ms > 0:
                 jitter = random.uniform(0, self._config.jitter_max_ms / 1000.0)
-                retry_after += jitter
+                retry_after_or_tokens += jitter
+            
+            return RateLimitResult(
+                allowed=True,
+                limit=self.requests,
+                remaining=retry_after_or_tokens if self.policy != RateLimitPolicy.GCRA else self.requests,
+                reset_after=1 if self.policy == RateLimitPolicy.GCRA else 0, # Approximation for now
+                retry_after=0.0,
+                usage=usage
+            )
+        else:  # Denied (-1)
+            # Add Jitter if enabled
+            if self._config.jitter_enabled and self._config.jitter_max_ms > 0:
+                jitter = random.uniform(0, self._config.jitter_max_ms / 1000.0)
+                retry_after_or_tokens += jitter
             
             return RateLimitResult(
                 allowed=False,
-                remaining=0,
-                retry_after=retry_after,
                 limit=self.requests,
+                remaining=0,
+                reset_after=retry_after_or_tokens,
+                retry_after=float(retry_after_or_tokens),
+                usage=usage
             )
     
-    def hit(self, key: str) -> RateLimitResult:
+
+    @classmethod
+    def _get_analytics_server(cls, config: FluxConfig, provider: StatsProvider) -> Optional[AnalyticsServer]:
+        """Get or create singleton analytics server."""
+        global _ANALYTICS_SERVER
+        if _ANALYTICS_SERVER is None and config.analytics_enabled:
+            _ANALYTICS_SERVER = AnalyticsServer(config, provider)
+            try:
+                _ANALYTICS_SERVER.start()
+            except Exception as e:
+                print(f"[flux] Warning: Failed to start analytics server: {e}")
+                # Don't crash, just proceed without analytics
+                _ANALYTICS_SERVER = None
+        return _ANALYTICS_SERVER
+
+    def hit(self, key: str, endpoint: Optional[str] = None) -> RateLimitResult:
         """
         Record a request and check if allowed.
         
@@ -326,6 +384,7 @@ class RateLimiter:
         
         Args:
             key: Unique identifier (e.g., "user:123" or "ip:1.2.3.4")
+            endpoint: Optional name of the endpoint/function for metrics.
         
         Returns:
             RateLimitResult with allowed status
@@ -333,27 +392,76 @@ class RateLimiter:
         now_ms = self._now_ms()
         
         try:
+            # Measure time
+            start_time = time.time()
+
             # Note: We pass the RAW key to C++.
             # The C++ engine handles SHA256 hashing and prefixing.
             # This improves performance and security centralization.
             
             
-            keys, args = self._build_script_params(key, now_ms)
+            keys, args = self._build_script_params(key, now_ms, endpoint)
             content, sha1 = self.script
             
             # Pass the prefix separately
             prefix = self._config.key_prefix
             
-            # Call the C++ engine with raw keys and prefix
-            status, value = self.client.eval_script(sha1, content, keys, args, prefix)
+            # Bypass C++ client to handle list returns correctly (until rebuild)
+            hashed_keys = [f"{prefix}{hashlib.sha256(k.encode()).hexdigest()}" if i == 0 else k for i, k in enumerate(keys)]
+            # The analytics keys (indices 1+) are already fully formed in _build_script_params and don't need hashing.
+            # But the logic above hashed everything.
+            # Actually _build_script_params returns the raw keys.
+            # The C++ client hashed the first key (limit key).
+            # The analytics keys are "system keys" and usually shared/not hashed the same way or already have prefix.
+            # Let's fix the hashing logic here for the temporary python bypass.
             
-            return self._parse_result(int(status), value, now_ms)
+            final_keys = []
+            for i, k in enumerate(keys):
+                if i == 0 and not k.startswith(prefix): 
+                    # Hash the user key
+                    final_keys.append(f"{prefix}{hashlib.sha256(k.encode()).hexdigest()}")
+                elif i == 1 and self.policy == RateLimitPolicy.FIXED_WINDOW:
+                     # Hash the queue key too
+                     final_keys.append(f"{prefix}{hashlib.sha256(k.encode()).hexdigest()}")
+                else:
+                    # Analytics keys are pre-prefixed, pass as is
+                    final_keys.append(k)
+            
+            try:
+                response = self.metrics_client.evalsha(sha1, len(final_keys), *final_keys, *args)
+            except redis.exceptions.NoScriptError:
+                self.metrics_client.script_load(content)
+                response = self.metrics_client.evalsha(sha1, len(final_keys), *final_keys, *args)
+            
+            # response is [status, val1, usage...]
+            if isinstance(response, list):
+                status = response[0]
+                value = response # Pass full list
+            else:
+                # Should not happen with current Lua, but fallback
+                status = response
+                value = 0
+
+            # DEBUG
+            # print(f"[debug] redis response: {response}") 
+
+            result = self._parse_result(int(status), value, now_ms)
+            
+            # Duration calculation is no longer used for metrics in Lua (captured as count only)
+            # duration_ms = (time.time() - start_time) * 1000.0
+
+            # Metrics are now recorded INSIDE the Lua script (1 RTT)
+                
+            return result
         
         except Exception as e:
             if self._config.fail_silently:
                 # Fail Open: Log error and allow request
                 import sys
                 print(f"[flux] [error] Rate limit check failed (Fail Open active): {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc()
+                
                 return RateLimitResult(
                     allowed=True,
                     remaining=1,

@@ -98,8 +98,8 @@ def rate_limit(
             identity_hash = generate_identity(request, key, prefix=name or func_name)
             return identity_hash
 
-        def check_limit_and_get_response(limiter, final_key, args):
-            result = limiter.hit(final_key)
+        def check_limit_and_get_response(limiter, final_key, args, endpoint_name=None):
+            result = limiter.hit(final_key, endpoint=endpoint_name)
             
             if not result.allowed:
                 # ---------------------------------------------------------
@@ -170,7 +170,12 @@ def rate_limit(
                 
                 # Check limit (Sync operation, Redis is fast enough)
                 # If we need async redis, we'd need a different client
-                denied_response = check_limit_and_get_response(limiter, final_key, args)
+                denied_response = check_limit_and_get_response(
+                    limiter, 
+                    final_key, 
+                    args, 
+                    endpoint_name=name or func.__name__
+                )
                 if denied_response:
                     return denied_response
                 
@@ -186,7 +191,12 @@ def rate_limit(
                 limiter = get_limiter()
                 final_key = get_final_key(args, kwargs, func.__name__)
                 
-                denied_response = check_limit_and_get_response(limiter, final_key, args)
+                denied_response = check_limit_and_get_response(
+                    limiter, 
+                    final_key, 
+                    args, 
+                    endpoint_name=name or func.__name__
+                )
                 if denied_response:
                     return denied_response
                 

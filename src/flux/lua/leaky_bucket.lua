@@ -10,8 +10,10 @@
 
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
-local leak_rate = tonumber(ARGV[2])
+local leak_time_ms = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])
+
+local leak_rate = 1000.0 / leak_time_ms
 
 -- Get current state: level and last_leak_time
 local data = redis.call('HMGET', key, 'level', 'last_leak')
@@ -40,7 +42,7 @@ if level < capacity then
     local ttl = math.ceil((capacity / leak_rate) * 2)
     redis.call('EXPIRE', key, ttl)
     
-    return {0, level} -- {allowed, current_level}
+    return {0, level, level} -- {allowed, current_level, usage}
 else
     -- Bucket is full
     -- Calculate when next unit will leak out

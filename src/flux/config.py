@@ -1,5 +1,3 @@
-
-
 import os
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -61,6 +59,10 @@ class FluxConfig:
     jitter_enabled: bool = False
     jitter_max_ms: int = 1000
 
+    # Analytics
+    analytics_enabled: bool = False
+    analytics_port: int = 4444
+
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
     """
@@ -105,6 +107,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
     flux = data.get("flux", {})
     rate_limit = data.get("rate_limit", {})
     rate_limits = data.get("rate_limits", {})
+    # Analytics
+    analytics = data.get("analytics", {})
     
     # Parse policy
     policy_str = rate_limit.get("policy", "gcra").lower()
@@ -131,6 +135,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
         console_logging=flux.get("console_logging", False),
         jitter_enabled=flux.get("jitter_enabled", False),
         jitter_max_ms=flux.get("jitter_max_ms", 1000),
+        analytics_enabled=analytics.get("enabled", False),
+        analytics_port=analytics.get("port", 4444),
         policy=policy,
         rate_limit_defaults=defaults,
         rate_limits=rate_limits,

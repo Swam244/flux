@@ -53,13 +53,13 @@ public:
     std::string ping();
     std::string load_script(const std::string& script_content);
     
-    std::pair<long long, double> eval_sha(
+    std::vector<long long> eval_sha(
         const std::string& script_sha,
         const std::vector<std::string>& keys,
         const std::vector<long long>& args
     );
 
-    std::pair<long long, double> eval_script(
+    std::vector<long long> eval_script(
         const std::string& script_sha,
         const std::string& script_content,
         const std::vector<std::string>& keys,

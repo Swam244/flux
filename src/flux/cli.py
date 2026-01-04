@@ -27,6 +27,11 @@ log_file = "flux_debug.log"
 fail_silently = true        # If true, allow requests when Redis is down
 console_logging = false     # If true, enable console logging
 
+# Analytics Settings
+[analytics]
+enabled = false
+port = 4444
+
 # Jitter helps prevent thundering herd by adding random variance to Retry-After
 jitter_enabled = false      # Disabled by default
 jitter_max_ms = 1000        # Max jitter to add in milliseconds (if enabled)
@@ -183,10 +188,19 @@ def main():
         help="Path to flux.toml (optional)"
     )
     
+    # monitor command
+    monitor_parser = subparsers.add_parser("monitor", help="Run the TUI monitor")
+    monitor_parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=4444,
+        help="Analytics server port (default: 4444)"
+    )
+
     args = parser.parse_args()
     
     if args.command == "init":
-        # Manually reconstruct args (legacy behavior preserved)
+        # Manually reconstruct args
         sys.argv = [sys.argv[0]] 
         if args.force:
             sys.argv.append("--force")
@@ -196,10 +210,16 @@ def main():
         
     elif args.command == "clear":
         clear_state(args.config)
+
+    elif args.command == "monitor":
+        # Import here to avoid early dependency check
+        import os
+        os.environ["FLUX_MONITOR_PORT"] = str(args.port)
+        from .monitor import main as monitor_main
+        monitor_main()
         
     else:
         parser.print_help()
-
-
+    
 if __name__ == "__main__":
     main()
