@@ -4,6 +4,7 @@
 --   ARGV[1]: capacity (max bucket size/burst)
 --   ARGV[2]: leak_rate (units per second that leak out)
 --   ARGV[3]: now (current timestamp in milliseconds)
+--   (Analytics args starting ARGV[4]... see implementation)
 -- Returns:
 --   -1 if rate limit exceeded (bucket full, with retry_after)
 --   0 if allowed (with current level)
@@ -42,6 +43,25 @@ if level < capacity then
     local ttl = math.ceil((capacity / leak_rate) * 2)
     redis.call('EXPIRE', key, ttl)
     
+    -- Analytics Recording
+    -- KEYS: [1] key, [2] stream
+    -- ARGV: [1] cap, [2] rate, [3] now, [4] record_analytics, [5] ep, [6-9] meta, [10] maxlen
+    local record_analytics = tonumber(ARGV[4]) or 0
+    if record_analytics == 1 then
+        local stream_key = KEYS[2]
+        redis.call('XADD', stream_key, 'MAXLEN', '~', ARGV[10], '*',
+            'ts', now,
+            'key', KEYS[1],
+            'ep', ARGV[5],
+            'd', 1, -- allowed
+            'p', 'leaky_bucket',
+            'u', level,
+            'mr', ARGV[6],
+            'mp', ARGV[7],
+            'mb', ARGV[8]
+        )
+    end
+
     return {0, level, level} -- {allowed, current_level, usage}
 else
     -- Bucket is full
@@ -54,6 +74,24 @@ else
     local ttl = math.ceil((capacity / leak_rate) * 2)
     redis.call('EXPIRE', key, ttl)
     
+    -- Analytics Recording
+    -- KEYS: [1] key, [2] stream
+    local record_analytics = tonumber(ARGV[4]) or 0
+    if record_analytics == 1 then
+        local stream_key = KEYS[2]
+        redis.call('XADD', stream_key, 'MAXLEN', '~', ARGV[10], '*',
+            'ts', now,
+            'key', KEYS[1],
+            'ep', ARGV[5],
+            'd', 0, -- blocked
+            'p', 'leaky_bucket',
+            'u', level,
+            'mr', ARGV[6],
+            'mp', ARGV[7],
+            'mb', ARGV[8]
+        )
+    end
+
     return {-1, retry_after} -- {denied, retry_after_seconds}
 end
 

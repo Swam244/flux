@@ -1,0 +1,9 @@
+Running 30s test @ http://localhost:8000/pro?api_key=bench_user
+  6 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    16.48ms   21.34ms 166.47ms   86.94%
+    Req/Sec     1.57k   300.21     2.18k    66.44%
+  281022 requests in 30.01s, 88.17MB read
+  Non-2xx or 3xx responses: 280992
+Requests/sec:   9363.71
+Transfer/sec:      2.94MB

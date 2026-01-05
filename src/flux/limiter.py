@@ -301,18 +301,29 @@ class RateLimiter:
         # ARGV: ... [4] record_analytics, [5] endpoint_name, [6] meta_requests ...
         
         if self._config.analytics_enabled and endpoint:
-            prefix = self._config.key_prefix
-            keys.append(f"{prefix}stats:ep:{endpoint}")
-            keys.append(f"{prefix}stats:global")
-            keys.append(f"{prefix}stats:endpoints")
+            # Sampling Check
+            # If sample_rate < 1.0, we probabilistically skip analytics
+            record_analytics = 1
+            if self._config.analytics_sample_rate < 1.0:
+                if random.random() > self._config.analytics_sample_rate:
+                    record_analytics = 0
             
-            args.append(1) # record_analytics = true
-            args.append(endpoint)
-            args.append(self.requests)
-            args.append(self.period)
-            args.append(self.burst)
-            args.append(self.policy.value)
-            args.append(3600) # ttl
+            # If skipping, we effectively pass 0 unless we want to "send but flag".
+            # The most efficient way is to send 0 so Lua skips XADD entirely.
+            
+            if record_analytics == 1:
+                keys.append(self._config.analytics_stream)
+                
+                args.append(1) # record_analytics = true
+                args.append(endpoint)
+                args.append(self.requests)
+                args.append(self.period)
+                args.append(self.burst)
+                args.append(self.policy.value)
+                args.append(self._config.analytics_retention) # maxlen
+            else:
+                 # Sampled out
+                 args.append(0)
         else:
             # Pass 0 to indicate no analytics
             args.append(0)
@@ -424,7 +435,8 @@ class RateLimiter:
                      # Hash the queue key too
                      final_keys.append(f"{prefix}{hashlib.sha256(k.encode()).hexdigest()}")
                 else:
-                    # Analytics keys are pre-prefixed, pass as is
+                    # Analytics Stream Key (or other args)
+                    # Use as-is (do NOT hash global connection strings/stream keys)
                     final_keys.append(k)
             
             try:

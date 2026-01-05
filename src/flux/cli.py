@@ -31,6 +31,10 @@ console_logging = false     # If true, enable console logging
 [analytics]
 enabled = false
 port = 4444
+stream = "flux:events"
+retention = 100000
+sample_rate = 1.0       # 1.0 = 100% of requests, 0.1 = 10%
+
 
 # Jitter helps prevent thundering herd by adding random variance to Retry-After
 jitter_enabled = false      # Disabled by default

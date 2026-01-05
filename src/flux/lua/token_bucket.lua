@@ -17,8 +17,9 @@ local refill_rate = 1000.0 / refill_time_ms
 
 -- Get current state: tokens and last_refill_time
 -- Analytics args (indices shift based on Keys)
--- KEYS: [1] limit_key, [2] stats_ep_key, [3] stats_global_key, [4] stats_ep_set
--- ARGV: [1] capacity, [2] refill_time_ms, [3] now, [4] record_analytics (0/1), [5] endpoint_name, [6] meta_requests, [7] meta_period, [8] meta_burst, [9] meta_policy, [10] ttl
+-- Analytics args (indices shift based on Keys)
+-- KEYS: [1] limit_key, [2] stream_key
+-- ARGV: [1] capacity, [2] refill_time_ms, [3] now, [4] record_analytics (0/1), [5] endpoint_name, [6-9] meta..., [10] retention(maxlen)
 
 local record_analytics = tonumber(ARGV[4]) or 0
 
@@ -70,35 +71,27 @@ else
 end
 
 -- Analytics Recording
+-- Analytics Recording
 if record_analytics == 1 then
-    local stats_ep_key = KEYS[2]
-    local stats_global_key = KEYS[3]
-    local stats_ep_set = KEYS[4]
+    local stream_key = KEYS[2]
     local endpoint = ARGV[5]
-    local stats_ttl = tonumber(ARGV[10]) or 3600
+    local max_len = ARGV[10] -- Was ttl, now reuse slot for max_len (or just hardcode/pass new arg)
+    -- Actually ARGV indices might need to drift if we change python side.
+    -- Plan says: "Update ARGV mapping". Let's assume Python sends the right things.
+    -- Python changes will map:
+    -- ARGV[10] -> retention (maxlen)
     
-    -- Add to Set
-    redis.call('SADD', stats_ep_set, endpoint)
-    redis.call('EXPIRE', stats_ep_set, stats_ttl)
-    
-    -- Update Endpoint Stats
-    local status_field = (decision_allowed == 1) and "c:allowed" or "c:blocked"
-    redis.call('HINCRBY', stats_ep_key, status_field, 1)
-    
-    -- Update Usage & Meta
-    redis.call('HSET', stats_ep_key, 
-        'u:raw', current_usage,
-        'm:last_updated', now,
-        'm:requests', ARGV[6],
-        'm:period', ARGV[7],
-        'm:burst', ARGV[8],
-        'm:policy', ARGV[9]
+    redis.call('XADD', stream_key, 'MAXLEN', '~', max_len, '*',
+        'ts', now,
+        'key', KEYS[1],
+        'ep', endpoint,
+        'd', decision_allowed,
+        'p', 'token_bucket',
+        'u', current_usage,
+        'mr', ARGV[6], -- requests
+        'mp', ARGV[7], -- period
+        'mb', ARGV[8]  -- burst
     )
-    redis.call('EXPIRE', stats_ep_key, stats_ttl)
-    
-    -- Update Global Stats (No latency, just counts)
-    redis.call('HINCRBY', stats_global_key, 'l:count', 1)
-    redis.call('EXPIRE', stats_global_key, stats_ttl)
 end
 
 if decision_allowed == 1 then

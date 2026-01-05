@@ -101,8 +101,16 @@ def render_tui(metrics, last_metrics, dt, peak_rps_map):
         print(f"{RED}Waiting for connection...{RESET}")
         return
 
+    # Filter out stale endpoints (inactive for > 60s) to prevent UI overflow
+    now_ms = time.time() * 1000
+    active_endpoints = []
+    for ep_data in metrics:
+        last = ep_data.get('last_updated', 0)
+        if (now_ms - last) < 60000:  # 60s window
+            active_endpoints.append(ep_data)
+
     # Sort endpoints
-    endpoints = sorted(metrics, key=lambda x: x['endpoint'])
+    endpoints = sorted(active_endpoints, key=lambda x: x['endpoint'])
     
     for ep_data in endpoints:
         ep = ep_data['endpoint']
@@ -200,6 +208,8 @@ def render_tui(metrics, last_metrics, dt, peak_rps_map):
         print(f"│ Allowed: {ep_data['allowed']:<6} Blocked: {ep_data['blocked']:<4} | {raw_display:<14} │")
         print(f"└────────────────────────────────────────────────────────┘")
         print("")
+    
+    sys.stdout.flush()
 
 def main():
     port = int(os.environ.get("FLUX_MONITOR_PORT", 4444))

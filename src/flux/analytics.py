@@ -4,6 +4,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from redis import Redis
 import socket
+from .worker import AnalyticsWorker
 
 # Configure logging
 logger = logging.getLogger("flux.analytics")
@@ -55,6 +56,9 @@ class AnalyticsServer:
         self.thread = None
         self._running = False
         
+        # Worker for processing Redis Streams
+        self.worker = AnalyticsWorker(config)
+        
     def start(self):
         """Start the background server."""
         if self._running:
@@ -69,6 +73,13 @@ class AnalyticsServer:
             # Start thread
             self.thread = threading.Thread(target=self._run_server, daemon=True)
             self.thread.start()
+            
+            # Start Worker
+            try:
+                self.worker.start()
+            except Exception as e:
+                logger.error(f"Failed to start analytics worker: {e}")
+                
             self._running = True
             logger.info(f"Analytics server started on port {self.port}")
             print(f"[flux] Analytics server listening on localhost:{self.port}")
@@ -89,4 +100,7 @@ class AnalyticsServer:
         if self.server:
             self.server.shutdown()
             self.server.server_close()
+            # Stop Worker
+            if self.worker:
+                self.worker.stop()
             self._running = False

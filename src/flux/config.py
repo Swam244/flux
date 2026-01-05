@@ -62,6 +62,11 @@ class FluxConfig:
     # Analytics
     analytics_enabled: bool = False
     analytics_port: int = 4444
+    analytics_enabled: bool = False
+    analytics_port: int = 4444
+    analytics_stream: str = "flux:events"
+    analytics_retention: int = 100000  # Max stream length
+    analytics_sample_rate: float = 1.0 # 0.0 to 1.0
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
@@ -137,6 +142,9 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> FluxConfig:
         jitter_max_ms=flux.get("jitter_max_ms", 1000),
         analytics_enabled=analytics.get("enabled", False),
         analytics_port=analytics.get("port", 4444),
+        analytics_stream=analytics.get("stream", "flux:events"),
+        analytics_retention=analytics.get("retention", 100000),
+        analytics_sample_rate=analytics.get("sample_rate", 1.0),
         policy=policy,
         rate_limit_defaults=defaults,
         rate_limits=rate_limits,

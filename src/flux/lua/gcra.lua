@@ -15,8 +15,8 @@ local now = tonumber(ARGV[3]) -- Current timestamp in milliseconds
 
 -- Get current TAT (Theoretical Arrival Time)
 -- Analytics Argv indices
--- KEYS: [1] limit_key, [2] stats_ep_key, [3] stats_global_key, [4] stats_ep_set
--- ARGV: [1] emission, [2] tolerance, [3] now, [4] record_analytics, [5-10] meta...
+-- KEYS: [1] limit_key, [2] stream_key
+-- ARGV: [1] emission, [2] tolerance, [3] now, [4] record_analytics, [5] ep, [6-9] meta... [10] retention
 
 local record_analytics = tonumber(ARGV[4]) or 0
 local decision_allowed = 0
@@ -52,35 +52,23 @@ else
 end
 
 -- Analytics Recording
+-- Analytics Recording
 if record_analytics == 1 then
-    local stats_ep_key = KEYS[2]
-    local stats_global_key = KEYS[3]
-    local stats_ep_set = KEYS[4]
+    local stream_key = KEYS[2]
     local endpoint = ARGV[5]
-    local stats_ttl = tonumber(ARGV[10]) or 3600
+    local max_len = ARGV[10]
     
-    -- Add to Set
-    redis.call('SADD', stats_ep_set, endpoint)
-    redis.call('EXPIRE', stats_ep_set, stats_ttl)
-    
-    -- Update Endpoint Stats
-    local status_field = (decision_allowed == 1) and "c:allowed" or "c:blocked"
-    redis.call('HINCRBY', stats_ep_key, status_field, 1)
-    
-    -- Update Usage & Meta
-    redis.call('HSET', stats_ep_key, 
-        'u:raw', current_usage,
-        'm:last_updated', now,
-        'm:requests', ARGV[6],
-        'm:period', ARGV[7],
-        'm:burst', ARGV[8],
-        'm:policy', ARGV[9]
+    redis.call('XADD', stream_key, 'MAXLEN', '~', max_len, '*',
+        'ts', now,
+        'key', KEYS[1],
+        'ep', endpoint,
+        'd', decision_allowed,
+        'p', 'gcra',
+        'u', current_usage,
+        'mr', ARGV[6], -- requests
+        'mp', ARGV[7], -- period
+        'mb', ARGV[8]  -- burst
     )
-    redis.call('EXPIRE', stats_ep_key, stats_ttl)
-    
-    -- Update Global Stats
-    redis.call('HINCRBY', stats_global_key, 'l:count', 1)
-    redis.call('EXPIRE', stats_global_key, stats_ttl)
 end
 
 if decision_allowed == 1 then

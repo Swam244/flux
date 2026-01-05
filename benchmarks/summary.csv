@@ -1,0 +1,9 @@
+Scenario,RPS,Latency_Avg,Latency_Max,Failures
+Baseline,19463.12,4.93ms,13.15ms,0
+LowOverhead,12370.91,7.82ms,74.52ms,371299
+AnalyticsImpact,9363.71,16.48ms,166.47ms,280992
+HighStress,9447.71,18.71ms,204.86ms,14
+Sampling75,9633.11,10.26ms,94.28ms,289052
+Sampling50,10086.51,9.59ms,30.61ms,302648
+Sampling25,11257.38,8.51ms,29.90ms,338818
+Sampling10,11364.45,8.44ms,16.16ms,341026
