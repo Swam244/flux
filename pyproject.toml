@@ -8,23 +8,56 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "flux-limiter"
 version = "0.1.18"
-description = "A High performance framework-agnostic rate limiter for Django, FastAPI, and Flask"
+
+description = "High-performance Python rate limiter for Django, FastAPI, and Flask using Redis and Lua"
+
 readme = "PYPI.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Swayam Jain" }]
+
+authors = [
+  { name = "Swayam Jain" }
+]
+
+keywords = [
+  "rate limiting",
+  "python rate limiter",
+  "redis rate limiter",
+  "api rate limiting",
+  "throttling",
+  "django rate limit",
+  "fastapi rate limiter",
+  "flask rate limiter",
+  "gcra",
+  "distributed systems"
+]
+
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
   "License :: OSI Approved :: MIT License",
+
   "Framework :: Django",
   "Framework :: FastAPI",
   "Framework :: Flask",
+
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: System :: Distributed Computing",
+
   "Intended Audience :: Developers",
 ]
+
 dependencies = [
     "redis>=7.1.0",
     "tomli>=2.3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Swam244/flux"
+Repository = "https://github.com/Swam244/flux"
+Issues = "https://github.com/Swam244/flux/issues"
+Documentation = "https://github.com/Swam244/flux#readme"
 
 [project.optional-dependencies]
 test = [
@@ -37,8 +70,9 @@ test = [
     "pytest>=9.0.2",
     "pytest-django>=4.5.0", 
 ]
+
 dev = [
-    "pytest>=7.0.0",
+    "pytest>=9.0.2",
 ]
 
 [tool.scikit-build]

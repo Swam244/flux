@@ -81,57 +81,147 @@ This generates a `flux.toml` file where you can adjust everything:
 
 ### flux.toml Reference
 
-The `flux.toml` file is where you configure the behavior of the rate limiter. Here are all the available options:
+The `flux.toml` file is where you configure the behavior of the rate limiter.
+
+#### Redis Settings `[redis]`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `host` | `"127.0.0.1"` | Redis server hostname. |
+| `port` | `6379` | Redis server port. |
+| `pool_size` | `5` | Number of connections in the pool. |
+| `timeout_ms` | `200` | Connection timeout in milliseconds. |
+
+#### Flux Core Settings `[flux]`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `key_prefix` | `"flux:"` | Prefix for all keys stored in Redis. |
+| `fail_silently` | `true` | If `true`, allows requests to proceed if Redis is down (Fail Open). |
+| `console_logging` | `false` | Enable debug logging to stdout. |
+| `jitter_enabled` | `true` | Adds random variance to `Retry-After` to prevent thundering herds. |
+| `jitter_max_ms` | `500` | Max jitter in milliseconds (if enabled). |
+
+#### Analytics Settings `[analytics]`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `enabled` | `false` | Enable the background analytics server. |
+| `port` | `4444` | Port for the metrics server (`/metrics`). |
+| `stream` | `"flux:events"` | Redis stream key for events. |
+| `retention` | `100000` | Max stream length (events). |
+| `sample_rate` | `1.0` | Sampling rate (0.0 to 1.0) for logging. |
+
+#### Rate Limit Defaults `[rate_limit]`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `policy` | `"gcra"` | Algorithm: `"gcra"`, `"token_bucket"`, `"leaky_bucket"`, `"fixed_window"`. |
+| `requests` | `100` | Number of requests allowed per period. |
+| `period` | `60` | Time period in seconds. |
+| `burst` | `requests` | Burst capacity (defaults to `requests` count). |
+
+---
+
+### Complete Configuration Example
+
+Here is a complete `flux.toml` file with all options explained:
 
 ```toml
+# =============================================================================
+# Flux Configuration
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Redis Connection Settings
+# -----------------------------------------------------------------------------
 [redis]
 host = "127.0.0.1"
 port = 6379
-pool_size = 10
+pool_size = 5
 timeout_ms = 200
 
+# -----------------------------------------------------------------------------
+# Flux Core Settings
+# -----------------------------------------------------------------------------
 [flux]
-# Prefix for all keys stored in Redis
 key_prefix = "flux:"
+log_file = "flux_debug.log"
+fail_silently = true        # Fail Open: Allow requests if Redis is down
+console_logging = false     # Enable for dev debugging
 
-# If Redis is unreachable, fail_silently=true allows the request to proceed (Fail Open).
-# fail_silently=false raises a ConnectionError (Fail Closed).
-fail_silently = true       
+# Jitter prevents Thundering Herd
+jitter_enabled = true
+jitter_max_ms = 500
 
-# Enable debug logging to stdout for development
-console_logging = false    
+# -----------------------------------------------------------------------------
+# Analytics & Monitoring
+# -----------------------------------------------------------------------------
+[analytics]
+enabled = true
+port = 4444
+stream = "flux:events"
+retention = 100000
+sample_rate = 1.0           # 1.0 = Log 100% of requests
 
-# Jitter adds random variance to the Retry-After header calculations.
-# This prevents "thundering herd" issues where all clients retry at the exact same millisecond.
-jitter_enabled = true      
-jitter_max_ms = 500        # Max jitter in milliseconds
-
+# -----------------------------------------------------------------------------
+# Default Rate Limiting Settings
+# -----------------------------------------------------------------------------
 [rate_limit]
-# Default policy for rate limiters that don't specify one
-# Options: "gcra", "token_bucket", "leaky_bucket", "fixed_window"
-policy = "gcra"
-requests = 100
-period = 60
-```
+policy = "gcra"             # Recommended: Smooths out traffic
+requests = 100              # 100 requests...
+period = 60                 # ...per 60 seconds
 
-### Named Limits
-
-Instead of hardcoding numbers in your code, you can define them in `flux.toml`:
-
-```toml
+# -----------------------------------------------------------------------------
+# Named Rate Limits
+# -----------------------------------------------------------------------------
 [rate_limits.api_tier_1]
 requests = 1000
 period = 3600
 policy = "gcra"
+
+[rate_limits.strict_login]
+requests = 5
+period = 300
+policy = "token_bucket"
 ```
 
-And then use them by name:
+### Named Limits
+
+Instead of hardcoding numbers in your code, you can define them in `flux.toml` (as seen above) and use them by name:
 
 ```python
 @rate_limit(name="api_tier_1")
 def expensive_call():
     pass
 ```
+
+
+## Analytics & Monitoring
+
+Flux comes with a built-in lightweight analytics server that exposes metrics.
+
+To enable it, add this to your `flux.toml`:
+
+```toml
+[analytics]
+enabled = true
+port = 4444          # Default port
+sample_rate = 1.0    # Log 100% of requests
+```
+
+Once enabled, Flux will start a background thread serving metrics at:
+`http://localhost:4444/metrics`
+
+You can view the metrics by running this:
+```bash
+python -m flux monitor
+```
+
+You can hit `/metrics` to get the follwing data:
+- Total requests
+- Rate limit hits (allowed)
+- Rate limit blocks (429s)
 
 ## Why isn't this just Python?
 

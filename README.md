@@ -26,7 +26,7 @@ Flux is designed for performance and correctness.
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/Start-Flux/flux.git
+   git clone https://github.com/Swam244/flux.git
    cd flux
    ```
 
@@ -64,8 +64,6 @@ Flux includes a CLI tool for management and monitoring.
   Start the text-based UI (TUI) to watch traffic.
   ```bash
   # Ensure your app is running with analytics enabled
-  python -m flux.cli monitor
-  ```
   python -m flux.cli monitor
   ```
 
