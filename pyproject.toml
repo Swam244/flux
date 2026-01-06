@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "flux-limiter"
-version = "0.1.18"
+version = "0.1.19"
 
 description = "High-performance Python rate limiter for Django, FastAPI, and Flask using Redis and Lua"
 

@@ -210,15 +210,12 @@ port = 4444          # Default port
 sample_rate = 1.0    # Log 100% of requests
 ```
 
-Once enabled, Flux will start a background thread serving metrics at:
-`http://localhost:4444/metrics`
-
 You can view the metrics by running this:
 ```bash
 python -m flux monitor
 ```
 
-You can hit `/metrics` to get the follwing data:
+You can also hit `/metrics` to get the follwing data:
 - Total requests
 - Rate limit hits (allowed)
 - Rate limit blocks (429s)
